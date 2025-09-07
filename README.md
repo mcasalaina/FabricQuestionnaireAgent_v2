@@ -1,16 +1,15 @@
-# Questionnaire Multiagent Application
+# Fabric Questionnaire Agent Application
 
-A windowed application that orchestrates three Azure AI Foundry agents to answer questions with fact-checking and link validation. Features both individual question processing and Excel import/export functionality, with a legacy command-line interface also available.
+A windowed application that uses Azure AI Foundry agents to answer questions from a structured dataset represented by a Microsoft Fabric Data Agent. Features both individual question processing and Excel import/export functionality, with a command-line interface also available.
 
 ## Overview
 
-This tool implements a multi-agent system that:
+This tool implements a dual-agent system that:
 
-1. **Question Answerer**: Searches the web for evidence and synthesizes a candidate answer
-2. **Answer Checker**: Validates factual correctness, completeness, and consistency
-3. **Link Checker**: Verifies that every URL cited in the answer is reachable and relevant
+1. **Question Answerer**: Uses Microsoft Fabric Data Agent to search structured datasets and generate answers
+2. **Answer Checker**: Validates that responses actually address the questions asked
 
-If either checker rejects the answer, the Question Answerer reformulates and the cycle repeats up to 25 attempts.
+If the Answer Checker rejects a response, the Question Answerer reformulates and the cycle repeats up to 10 attempts. If no data is found in the Fabric dataset for a question, the system returns a blank response as expected behavior.
 
 ## Features
 
@@ -18,10 +17,10 @@ If either checker rejects the answer, the Question Answerer reformulates and the
 - **Excel Integration**: Import questions from Excel files and export results
 - **Real-time Progress**: Live reasoning display showing agent workflow
 - **Character Limit Control**: Configurable answer length with automatic retries
-- **Web Grounding**: All agents use Bing search via Azure AI Foundry
-- **Multi-agent Validation**: Three-stage validation ensures answer quality
-- **Source Verification**: All cited URLs are checked for reachability and relevance
-- **Legacy CLI Support**: Command-line interface still available for automation
+- **Fabric Data Grounding**: All answers sourced from structured datasets via Fabric Data Agent
+- **Dual-agent Validation**: Two-stage validation ensures answer quality and relevance
+- **Blank Response Handling**: Returns empty responses when no data is available (not an error)
+- **Command-line Interface**: CLI available for automation and scripting
 
 ## Installation
 
@@ -29,19 +28,14 @@ If either checker rejects the answer, the Question Answerer reformulates and the
 
 - Python 3.8 or higher
 - Azure subscription with AI Foundry project
+- Microsoft Fabric Data Agent published and configured
 - Azure CLI installed and authenticated (`az login`)
-- Bing Search resource connected to your AI Foundry project
+- Fabric Data Agent connection configured in your AI Foundry project
 
 ### Install Dependencies
 
 ```bash
 pip install -r requirements.txt
-```
-
-### Build the Project
-
-```bash
-pip install -e .
 ```
 
 ## Usage
@@ -59,7 +53,7 @@ python question_answerer.py
 2. Set character limit (default: 2000)
 3. Type your question and click "Ask!"
 4. Monitor progress in the Reasoning tab
-5. View results in Answer and Documentation tabs
+5. View results in Answer tab (no Documentation tab in Fabric mode)
 
 **Excel Import Mode:**
 1. Click "Import From Excel" button
@@ -68,17 +62,17 @@ python question_answerer.py
 4. Monitor real-time processing progress
 5. Choose save location when complete
 
-### Legacy CLI Interface
+### CLI Interface
 
 For automation and scripting:
 
 ```bash
-python main.py "Why is the sky blue?"
+python question_answerer.py --question "What are the sales figures for Q1?"
 ```
 
 With verbose logging:
 ```bash
-python main.py "What are the benefits of renewable energy?" --verbose
+python question_answerer.py --question "What products were sold in January?" --verbose
 ```
 
 ## Example Output
@@ -87,13 +81,13 @@ python main.py "What are the benefits of renewable energy?" --verbose
 ================================================================================
 FINAL ANSWER:
 ================================================================================
-Based on web search results, here's what I found:
+Based on the structured dataset, here's what I found:
 
-The sky appears blue due to a phenomenon called Rayleigh scattering. When sunlight enters Earth's atmosphere, it collides with tiny gas molecules. Blue light has a shorter wavelength than other colors, so it gets scattered more in all directions by these molecules. This scattered blue light is what we see when we look at the sky.
+The Q1 sales data shows total revenue of $2.4M across all product categories. 
+The Software division led with $1.2M (50%), followed by Hardware at $800K (33%), 
+and Services at $400K (17%). This represents a 15% increase compared to Q4 of 
+the previous year.
 
-Sources:
-- [NASA Science](https://science.nasa.gov/earth/earth-atmosphere/why-is-the-sky-blue/)
-- [National Weather Service](https://www.weather.gov/jetstream/color)
 ================================================================================
 ```
 
@@ -101,22 +95,20 @@ Sources:
 
 ### Components
 
-| Component | Responsibility | Grounding Source |
-|-----------|---------------|------------------|
-| **Question Answerer** | Searches the web for evidence, synthesizes a candidate answer | Web search API |
-| **Answer Checker** | Validates factual correctness, completeness, and consistency | Web search API |
-| **Link Checker** | Verifies that every URL cited in the answer is reachable and relevant | HTTP requests + web search |
+| Component | Responsibility | Data Source |
+|-----------|---------------|-------------|
+| **Question Answerer** | Searches structured datasets via Fabric Data Agent and generates answers | Microsoft Fabric Data Agent |
+| **Answer Checker** | Validates that responses actually address the questions asked | No external data source |
 
 ### Workflow
 
-1. **Read Input**: Accept a question from the command line
-2. **Answer Generation**: Question Answerer retrieves evidence and produces a draft answer
-3. **Validation**: 
-   - Answer Checker reviews the draft for accuracy and completeness
-   - Link Checker tests all cited URLs for reachability and relevance
-4. **Decision**:
-   - If both checkers approve: Output the final answer and terminate successfully
-   - If either checker rejects: Log rejection reasons, increment attempt counter, and retry (up to 25 attempts)
+1. **Read Input**: Accept a question from the GUI or command line
+2. **Answer Generation**: Question Answerer queries Fabric Data Agent for relevant information
+3. **Blank Response Check**: If no data found, return blank response (expected behavior)
+4. **Validation**: Answer Checker reviews the response for relevance to the original question
+5. **Decision**:
+   - If Answer Checker approves: Output the final answer and terminate successfully
+   - If Answer Checker rejects: Log rejection reasons, increment attempt counter, and retry (up to 10 attempts)
 
 ## Configuration
 
@@ -130,7 +122,7 @@ Copy the template file and configure your values:
 cp .env.template .env
 ```
 
-Then edit `.env` with your actual Azure AI Foundry configuration values.
+Then edit `.env` with your actual Azure AI Foundry and Fabric configuration values.
 
 ### Required Environment Variables
 
@@ -140,17 +132,17 @@ The application requires the following environment variables to be set in your `
 |----------|-------------|---------------|
 | `AZURE_OPENAI_ENDPOINT` | Azure AI Foundry project endpoint | Azure AI Foundry Portal > Project Overview > Project Details |
 | `AZURE_OPENAI_MODEL_DEPLOYMENT` | Your deployed model name | Azure AI Foundry Portal > Models + Endpoints |
-| `BING_CONNECTION_ID` | Bing Search connection name | Azure AI Foundry Portal > Connected Resources |
-| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Application Insights connection string | Azure Portal > Application Insights > Overview |
+| `FABRIC_CONNECTION_ID` | Fabric Data Agent connection ID | Azure AI Foundry Portal > Management Center > Connected Resources |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Application Insights connection string (optional) | Azure Portal > Application Insights > Overview |
 | `AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED` | Enable AI content tracing (optional) | Set to `true` or `false` |
 
 **Example `.env` file:**
 
 ```bash
 AZURE_OPENAI_ENDPOINT=https://your-project.services.ai.azure.com/api/projects/your-project
-AZURE_OPENAI_MODEL_DEPLOYMENT=gpt-4.1
-BING_CONNECTION_ID=your-bing-connection-name
-APPLICATIONINSIGHTS_CONNECTION_STRING=InstrumentationKey=your-key;IngestionEndpoint=https://your-region.in.applicationinsights.azure.com/;LiveEndpoint=https://your-region.livediagnostics.monitor.azure.com/;ApplicationId=your-app-id
+AZURE_OPENAI_MODEL_DEPLOYMENT=gpt-4o-mini
+FABRIC_CONNECTION_ID=/subscriptions/your-sub/resourceGroups/your-rg/providers/Microsoft.MachineLearningServices/workspaces/your-project/connections/your-fabric-connection
+APPLICATIONINSIGHTS_CONNECTION_STRING=InstrumentationKey=your-key;IngestionEndpoint=https://your-region.in.applicationinsights.azure.com/
 AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true
 ```
 
@@ -160,11 +152,24 @@ AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED=true
 - The `.env.template` file shows the required structure without sensitive values
 - Application Insights connection string enables Azure AI Foundry tracing for monitoring and debugging
 
+### Microsoft Fabric Data Agent Setup
+
+Before using this application, you must:
+
+1. **Create and Publish a Fabric Data Agent** in Microsoft Fabric with your structured datasets
+2. **Configure Connection in Azure AI Foundry**: Add the Fabric Data Agent as a knowledge source
+3. **Set Up Authentication**: Ensure proper permissions for data access via Identity Passthrough
+
+The Fabric connection ID should be in the format:
+```
+/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.MachineLearningServices/workspaces/<project-name>/connections/<connection-name>
+```
+
 ### Azure AI Foundry Tracing
 
 The application includes built-in Azure AI Foundry tracing integration that provides:
 
-- **Distributed Tracing**: Full visibility into multi-agent workflows
+- **Distributed Tracing**: Full visibility into dual-agent workflows
 - **Performance Monitoring**: Track execution times and bottlenecks  
 - **Gen AI Content Capture**: Record prompts and responses (when enabled)
 - **Error Tracking**: Detailed error context and stack traces

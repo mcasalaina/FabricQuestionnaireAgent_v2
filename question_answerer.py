@@ -27,7 +27,7 @@ import pandas as pd
 import warnings
 from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
-from azure.ai.agents.models import BingGroundingTool
+from azure.ai.agents.models import FabricTool
 from dotenv import load_dotenv
 
 # Suppress openpyxl data validation warnings - these are not actionable by users
@@ -345,18 +345,6 @@ class QuestionnaireAgentUI:
         self.answer_text.insert(tk.END, "Response will appear here after clicking Ask!")
         self.answer_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=(0, 5))
         
-        # Documentation tab
-        docs_frame = ttk.Frame(self.notebook)
-        self.notebook.add(docs_frame, text="Documentation")
-        
-        docs_label = ttk.Label(docs_frame, text="Documentation")
-        docs_label.pack(anchor=tk.W, pady=(5, 5))
-        
-        self.docs_text = scrolledtext.ScrolledText(docs_frame, wrap=tk.WORD, 
-                                                  font=('Segoe UI', 12))
-        self.docs_text.insert(tk.END, "Documentation will appear here...")
-        self.docs_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=(0, 5))
-        
         # Reasoning tab
         reasoning_frame = ttk.Frame(self.notebook)
         self.notebook.add(reasoning_frame, text="Reasoning")
@@ -445,8 +433,10 @@ class QuestionnaireAgentUI:
             return
             
         self.status_working.set("Working")
-        self.status_working_label.config(foreground="green")
-        self.status_agent.set(agent_name)
+        if hasattr(self, 'status_working_label'):
+            self.status_working_label.config(foreground="green")
+        if self.status_agent:
+            self.status_agent.set(agent_name)
         
         # Start timer
         import time
@@ -459,15 +449,18 @@ class QuestionnaireAgentUI:
             return
             
         self.status_working.set("Idle")
-        self.status_working_label.config(foreground="black")
-        self.status_agent.set("")
+        if hasattr(self, 'status_working_label'):
+            self.status_working_label.config(foreground="black")
+        if self.status_agent:
+            self.status_agent.set("")
         
         # Stop timer
-        if self.timer_job:
+        if self.timer_job and self.root:
             self.root.after_cancel(self.timer_job)
             self.timer_job = None
         self.start_time = None
-        self.status_time.set("00:00")
+        if self.status_time:
+            self.status_time.set("00:00")
         
     def update_agent(self, agent_name):
         """Update the current agent being processed."""
@@ -487,7 +480,8 @@ class QuestionnaireAgentUI:
         self.status_time.set(f"{minutes:02d}:{seconds:02d}")
         
         # Schedule next update
-        self.timer_job = self.root.after(1000, self.update_timer)
+        if self.root:
+            self.timer_job = self.root.after(1000, self.update_timer)
         
     def show_excel_mode(self, input_path, output_path):
         """Show Excel processing information in status bar."""
@@ -499,12 +493,16 @@ class QuestionnaireAgentUI:
         input_name = os.path.basename(input_path)
         output_name = os.path.basename(output_path)
         
-        self.status_excel_input.set(input_name)
-        self.status_excel_output.set(output_name)
-        self.status_excel_question.set("")
+        if self.status_excel_input:
+            self.status_excel_input.set(input_name)
+        if self.status_excel_output:
+            self.status_excel_output.set(output_name)
+        if self.status_excel_question:
+            self.status_excel_question.set("")
         
         # Pack the Excel frame to show it
-        self.excel_frame.pack(side=tk.RIGHT, padx=(10, 0))
+        if hasattr(self, 'excel_frame'):
+            self.excel_frame.pack(side=tk.RIGHT, padx=(10, 0))
         
     def hide_excel_mode(self):
         """Hide Excel processing information from status bar."""
@@ -512,12 +510,16 @@ class QuestionnaireAgentUI:
             return
             
         # Clear Excel variables
-        self.status_excel_input.set("")
-        self.status_excel_output.set("")
-        self.status_excel_question.set("")
+        if self.status_excel_input:
+            self.status_excel_input.set("")
+        if self.status_excel_output:
+            self.status_excel_output.set("")
+        if self.status_excel_question:
+            self.status_excel_question.set("")
         
         # Unpack the Excel frame to hide it
-        self.excel_frame.pack_forget()
+        if hasattr(self, 'excel_frame'):
+            self.excel_frame.pack_forget()
         
     def update_excel_question(self, question_number, total_questions=None):
         """Update the current question number being processed."""
@@ -544,11 +546,10 @@ class QuestionnaireAgentUI:
         self.ask_button.config(state=tk.DISABLED)
         
         # Switch to Reasoning tab immediately
-        self.notebook.select(2)  # Index 2 is the Reasoning tab (Answer=0, Documentation=1, Reasoning=2)
+        self.notebook.select(1)  # Index 1 is the Reasoning tab (Answer=0, Reasoning=1 - no Documentation tab)
         
         # Clear previous results
         self.answer_text.delete(1.0, tk.END)
-        self.docs_text.delete(1.0, tk.END)
         self.reasoning_text.delete(1.0, tk.END)
         
         # Start working mode
@@ -614,21 +615,14 @@ class QuestionnaireAgentUI:
         self.log_reasoning("=" * 80)
         
         # Create agents if not already created
-        if not all([self.question_answerer_id, self.answer_checker_id, self.link_checker_id]):
+        if not all([self.question_answerer_id, self.answer_checker_id]):
             self.create_agents()
         
         attempt = 1
         max_attempts = max_retries
         
-        # Track valid links across retries for this question
-        accumulated_valid_links = []
-        
         # Track previous attempts and feedback for context improvement
         attempt_history = []
-        
-        # Track if we have a valid answer that just needs links (issue #10)
-        validated_answer = None
-        skip_answer_checker = False
         
         while attempt <= max_attempts:
             self.log_reasoning(f"Attempt {attempt}/{max_attempts}")
@@ -637,31 +631,32 @@ class QuestionnaireAgentUI:
             self.log_reasoning("Question Answerer: Generating answer...")
             candidate_answer, doc_urls = self.generate_answer(question, context, char_limit, attempt_history)
             
-            if not candidate_answer:
-                self.log_reasoning("Question Answerer failed to generate an answer")
-                break
+            # Check if Question Answerer returned a blank response (no data found in Fabric)
+            if not candidate_answer or candidate_answer.strip() == "":
+                self.log_reasoning("Question Answerer returned blank response - Fabric found no data for this question")
+                self.log_reasoning("=" * 80)
+                self.log_reasoning("QUESTION WORKFLOW COMPLETED - NO DATA FOUND")
+                self.log_reasoning("Context will be CLEARED for next question (no carryover of attempt history)")
+                self.log_reasoning("=" * 80)
+                
+                # Update UI with blank results (only in non-headless mode)
+                if not self.headless_mode:
+                    self.root.after(0, lambda: self.update_results("", []))
+                
+                # Return success with blank answer (this is expected behavior)
+                return True, "", []
             
             # Log the raw answer before processing
             self.log_reasoning("=== RAW ANSWER FROM QUESTION ANSWERER ===")
             self.log_reasoning(candidate_answer)
             self.log_reasoning("=== END RAW ANSWER ===")
             
-            # Remove links and citations, save links for documentation
-            clean_answer, text_links = self.extract_links_and_clean(candidate_answer)
+            # For Fabric mode, we don't extract links since there shouldn't be URLs in the response
+            clean_answer = candidate_answer.strip()
             
-            self.log_reasoning("=== CLEANED ANSWER AFTER URL EXTRACTION ===")
+            self.log_reasoning("=== CLEANED ANSWER ===")
             self.log_reasoning(clean_answer)
             self.log_reasoning("=== END CLEANED ANSWER ===")
-            
-            self.log_reasoning(f"Extracted {len(text_links)} URLs from answer text")
-            for link in text_links:
-                self.log_reasoning(f"  Text URL: {link}")
-            
-            # Combine documentation URLs from run steps with any URLs found in text
-            all_links = list(set(doc_urls + text_links))  # Remove duplicates
-            self.log_reasoning(f"Total combined URLs: {len(all_links)}")
-            for link in all_links:
-                self.log_reasoning(f"  Combined URL: {link}")
             
             # Check character limit
             if len(clean_answer) > char_limit:
@@ -679,86 +674,25 @@ class QuestionnaireAgentUI:
                 attempt += 1
                 continue
             
-            # Step 2: Validate answer (skip if we already have a validated answer)
-            if skip_answer_checker and validated_answer:
-                self.log_reasoning("Answer Checker: Skipping validation - we already have a validated answer")
-                answer_valid = True
-                clean_answer = validated_answer  # Use the previously validated answer
-            else:
-                answer_valid, answer_feedback = self.validate_answer(question, clean_answer)
+            # Step 2: Validate answer - only run if we have a non-blank answer
+            answer_valid, answer_feedback = self.validate_answer(question, clean_answer)
+            
+            if not answer_valid:
+                self.log_reasoning(f"Answer Checker rejected: {answer_feedback}")
                 
-                if not answer_valid:
-                    self.log_reasoning(f"Answer Checker rejected: {answer_feedback}")
-                    
-                    # Add to attempt history for next iteration
-                    attempt_history.append({
-                        'attempt': attempt,
-                        'answer': clean_answer,
-                        'rejection_reason': answer_feedback,
-                        'rejected_by': 'Answer Checker'
-                    })
-                    
-                    attempt += 1
-                    continue
-                else:
-                    # Answer Checker approved - save this as our validated answer
-                    validated_answer = clean_answer
-            
-            # Step 3: Validate links
-            self.log_reasoning("Link Checker: Verifying URLs...")
-            links_valid, valid_links, link_feedback = self.validate_links(all_links)
-            
-            # Accumulate any valid links found in this attempt
-            if valid_links:
-                for link in valid_links:
-                    if link not in accumulated_valid_links:
-                        accumulated_valid_links.append(link)
-                        self.log_reasoning(f"Added valid link to accumulated collection: {link}")
-            
-            # Check if we have a valid answer and at least some valid links (current or accumulated)
-            if not links_valid and not accumulated_valid_links:
-                # No valid links in current attempt and no accumulated links from previous attempts
-                self.log_reasoning(f"Link Checker rejected: {link_feedback}")
-                
-                # Issue #10 fix: If we have a validated answer but no links, 
-                # don't throw away the answer - instead ask for links that support it
-                if validated_answer and not skip_answer_checker:
-                    self.log_reasoning("Answer is validated but has no links")
-                    self.log_reasoning("Next attempt will keep the validated answer and ask for supporting links")
-                    
-                    # Add special context for next iteration to find supporting links
-                    attempt_history.append({
-                        'attempt': attempt,
-                        'answer': validated_answer,
-                        'rejection_reason': f"Good answer but needs supporting links: {link_feedback}",
-                        'rejected_by': 'Link Checker (needs supporting links)',
-                        'special_instruction': 'keep_answer_find_links'
-                    })
-                    
-                    # Set flag to skip Answer Checker on next iteration
-                    skip_answer_checker = True
-                else:
-                    # Standard rejection - no validated answer yet
-                    attempt_history.append({
-                        'attempt': attempt,
-                        'answer': clean_answer,
-                        'rejection_reason': link_feedback,
-                        'rejected_by': 'Link Checker'
-                    })
+                # Add to attempt history for next iteration
+                attempt_history.append({
+                    'attempt': attempt,
+                    'answer': clean_answer,
+                    'rejection_reason': answer_feedback,
+                    'rejected_by': 'Answer Checker'
+                })
                 
                 attempt += 1
                 continue
-            elif not links_valid and accumulated_valid_links:
-                # Current attempt has no valid links, but we have accumulated valid links from previous attempts
-                self.log_reasoning(f"Link Checker found no valid links in current attempt, but reusing {len(accumulated_valid_links)} valid links from previous attempts")
-                final_valid_links = accumulated_valid_links.copy()
-            else:
-                # Current attempt has valid links
-                final_valid_links = accumulated_valid_links.copy()  # Use all accumulated links
             
             # All checks passed
-            self.log_reasoning("All agents approved the answer!")
-            self.log_reasoning(f"Final answer will use {len(final_valid_links)} documentation links")
+            self.log_reasoning("Answer Checker approved the answer!")
             self.log_reasoning("=" * 80)
             self.log_reasoning("QUESTION WORKFLOW COMPLETED SUCCESSFULLY")
             self.log_reasoning("Context will be CLEARED for next question (no carryover of attempt history)")
@@ -766,10 +700,10 @@ class QuestionnaireAgentUI:
             
             # Update UI with results (only in non-headless mode)
             if not self.headless_mode:
-                self.root.after(0, lambda: self.update_results(clean_answer, final_valid_links))
+                self.root.after(0, lambda: self.update_results(clean_answer, []))
             
-            # Return success with results
-            return True, clean_answer, final_valid_links
+            # Return success with results (no links in Fabric mode)
+            return True, clean_answer, []
             
         # Max attempts reached
         self.log_reasoning(f"Failed to generate acceptable answer after {max_attempts} attempts")
@@ -780,17 +714,9 @@ class QuestionnaireAgentUI:
         return False, f"Failed to generate acceptable answer after {max_attempts} attempts", []
                 
     def update_results(self, answer: str, links: List[str]):
-        """Update the UI with the final answer and documentation."""
+        """Update the UI with the final answer."""
         self.answer_text.delete(1.0, tk.END)
         self.answer_text.insert(tk.END, answer)
-        
-        self.docs_text.delete(1.0, tk.END)
-        if links:
-            self.docs_text.insert(tk.END, "Documentation links:\n\n")
-            for link in links:
-                self.docs_text.insert(tk.END, f"• {link}\n")
-        else:
-            self.docs_text.insert(tk.END, "No documentation links found.")
     
     def update_question_display(self, question: str):
         """Update the Question box with the current question being processed."""
@@ -828,16 +754,9 @@ class QuestionnaireAgentUI:
                     self.answer_checker_session = None
                     self.answer_checker_id = None
             
-            # Clean up link checker session
-            if self.link_checker_session:
-                try:
-                    self.link_checker_session.__exit__(None, None, None)
-                    self.logger.info("Cleaned up Link Checker agent")
-                except Exception as e:
-                    self.logger.warning(f"Error cleaning up Link Checker agent: {e}")
-                finally:
-                    self.link_checker_session = None
-                    self.link_checker_id = None
+            # Link Checker has been removed - no cleanup needed
+            self.link_checker_session = None
+            self.link_checker_id = None
                     
             self.logger.info("Agent cleanup completed")
             
@@ -845,13 +764,13 @@ class QuestionnaireAgentUI:
             self.logger.error(f"Error during agent cleanup: {e}")
             
     def create_agents(self):
-        """Create the three Azure AI Foundry agents using FoundryAgentSession for proper cleanup."""
+        """Create the Azure AI Foundry agents using FoundryAgentSession for proper cleanup."""
         # Skip agent creation in mock mode
         if self.mock_mode:
             self.log_reasoning("Mock mode enabled - skipping Azure agent creation")
             self.question_answerer_id = "mock_question_answerer"
             self.answer_checker_id = "mock_answer_checker"
-            self.link_checker_id = "mock_link_checker"
+            self.link_checker_id = None  # No Link Checker in Fabric mode
             return
             
         # Clean up any existing agents first
@@ -862,34 +781,25 @@ class QuestionnaireAgentUI:
             
             # Get model deployment name from environment
             model_deployment = os.getenv("AZURE_OPENAI_MODEL_DEPLOYMENT")
-            bing_resource_name = os.getenv("BING_CONNECTION_ID")
+            fabric_connection_id = os.getenv("FABRIC_CONNECTION_ID")
             
-            if not bing_resource_name:
-                raise ValueError("BING_CONNECTION_ID not found in environment variables")
+            if not fabric_connection_id:
+                raise ValueError("FABRIC_CONNECTION_ID not found in environment variables")
             
-            # Get the actual connection ID from the resource name
+            # Get the actual connection ID from the resource name (if needed)
             try:
-                connection = self.project_client.connections.get(name=bing_resource_name)
+                self.log_reasoning(f"Attempting to get Fabric connection with name: {fabric_connection_id}")
+                connection = self.project_client.connections.get(name=fabric_connection_id)
                 conn_id = connection.id
+                self.log_reasoning(f"Successfully retrieved connection ID: {conn_id}")
             except Exception as conn_error:
-                self.log_reasoning(f"ERROR: Failed to get Bing connection '{bing_resource_name}': {conn_error}")
-                
-                # List all available connections to help debug
-                try:
-                    self.log_reasoning("Listing all available connections:")
-                    connections = self.project_client.connections.list()
-                    for conn in connections:
-                        self.log_reasoning(f"  - Name: '{conn.name}', Type: {getattr(conn, 'connection_type', 'unknown')}, ID: {conn.id}")
-                    
-                    if not connections:
-                        self.log_reasoning("  No connections found in this project.")
-                except Exception as list_error:
-                    self.log_reasoning(f"  Could not list connections: {list_error}")
-                
-                raise ValueError(f"Bing connection '{bing_resource_name}' not found. Check BING_CONNECTION_ID in your .env file.") from conn_error
+                self.log_reasoning(f"ERROR: Failed to get Fabric connection '{fabric_connection_id}': {conn_error}")
+                # Assume the provided ID is already the full connection ID
+                conn_id = fabric_connection_id
+                self.log_reasoning(f"Using provided connection ID directly: {conn_id}")
             
-            # Create Bing grounding tool
-            bing_tool = BingGroundingTool(connection_id=conn_id)
+            # Create Fabric tool
+            fabric_tool = FabricTool(connection_id=conn_id)
             
             # Create Question Answerer agent using FoundryAgentSession
             try:
@@ -897,8 +807,8 @@ class QuestionnaireAgentUI:
                     client=self.project_client,
                     model=model_deployment,
                     name="Question Answerer",
-                    instructions="You are a question answering agent. You MUST search the web extensively for evidence and synthesize accurate answers. Your answer must be based on current web search results. IMPORTANT: You must include the actual source URLs directly in your answer text. Write the full URLs (like https://docs.microsoft.com/example) in your response text where you reference information. Do not use citation markers like [1], (source), or 【†source】 - instead include the actual URLs, which you should always put at the end of your response, separated by newlines with no other text or formatting. Write in plain text without formatting. Your answer must end with a period and contain only complete sentences. Do not include any closing phrases like 'Learn more:', 'References:', 'For more information, see:', 'For more details, see:', 'Learn more at:', 'More information:', 'Additional resources:', or any similar calls-to-action at the end. There should only be prose, followed by a list of URLs for reference separated by newlines. Those URLs should be the ones provided by Bing. Always use the Bing grounding tool to search for current information.",
-                    agent_config={"tools": bing_tool.definitions}
+                    instructions="You are a question answering agent. You MUST use the Fabric tool for every question to search for information from the structured dataset. If the Fabric tool cannot find any data for a given question, return a completely blank response (empty string). When you do find relevant data, provide a comprehensive answer based on the information retrieved from Fabric. Write in clear, complete sentences and ensure your response directly answers the question asked.",
+                    agent_config={"tools": fabric_tool.definitions}
                 )
                 question_answerer, _ = self.question_answerer_session.__enter__()
                 self.question_answerer_id = self.question_answerer_session.get_agent_id()
@@ -906,29 +816,22 @@ class QuestionnaireAgentUI:
                 self.log_reasoning(f"ERROR: Failed to create Question Answerer agent with model '{model_deployment}': {e}")
                 raise ValueError(f"Model deployment '{model_deployment}' not found. Check AZURE_OPENAI_MODEL_DEPLOYMENT in your .env file.") from e
             
-            # Create Answer Checker agent using FoundryAgentSession
+            # Create Answer Checker agent using FoundryAgentSession (no tools)
             self.answer_checker_session = FoundryAgentSession(
                 client=self.project_client,
                 model=model_deployment,
                 name="Answer Checker",
-                instructions="You are an answer validation agent. Review candidate answers for factual correctness, completeness, and consistency. Use web search to verify claims. Respond with 'VALID' if the answer is acceptable or 'INVALID: [reason]' if not.",
-                agent_config={"tools": bing_tool.definitions}
+                instructions="You are an answer validation agent. Review candidate answers to verify that they actually answer the original question asked. Check for relevance, completeness, and whether the response addresses what was asked. Respond with 'VALID' if the answer properly addresses the question or 'INVALID: [reason]' if it does not.",
+                agent_config={"tools": []}  # No tools for Answer Checker
             )
             answer_checker, _ = self.answer_checker_session.__enter__()
             self.answer_checker_id = self.answer_checker_session.get_agent_id()
             
-            # Create Link Checker agent using FoundryAgentSession
-            self.link_checker_session = FoundryAgentSession(
-                client=self.project_client,
-                model=model_deployment,
-                name="Link Checker",
-                instructions="You are a link validation agent. Verify that URLs are reachable and relevant to the given question. Report any issues with links.",
-                agent_config={"tools": []}  # Will use requests/playwright for link checking
-            )
-            link_checker, _ = self.link_checker_session.__enter__()
-            self.link_checker_id = self.link_checker_session.get_agent_id()
+            # Remove Link Checker agent entirely
+            self.link_checker_session = None
+            self.link_checker_id = None
             
-            self.log_reasoning("All agents created successfully!")
+            self.log_reasoning("Question Answerer and Answer Checker agents created successfully!")
             
         except Exception as e:
             self.logger.error(f"Failed to create agents: {e}")
@@ -936,7 +839,7 @@ class QuestionnaireAgentUI:
             self.cleanup_agents()
             raise
             
-    def generate_answer(self, question: str, context: str, char_limit: int, attempt_history: list = None) -> Tuple[Optional[str], List[str]]:
+    def generate_answer(self, question: str, context: str, char_limit: int, attempt_history: Optional[list] = None) -> Tuple[Optional[str], List[str]]:
         """Generate an answer using the Question Answerer agent."""
         try:
             # Use custom span for Question Answerer agent
@@ -956,7 +859,7 @@ class QuestionnaireAgentUI:
             self.log_reasoning(error_msg)
             return None, []
     
-    def _execute_question_answerer(self, question: str, context: str, char_limit: int, attempt_history: list = None) -> Tuple[Optional[str], List[str]]:
+    def _execute_question_answerer(self, question: str, context: str, char_limit: int, attempt_history: Optional[list] = None) -> Tuple[Optional[str], List[str]]:
         """Internal method to execute Question Answerer agent operations."""
         # Check for mock mode first
         if self.mock_mode:
@@ -1203,95 +1106,31 @@ class QuestionnaireAgentUI:
         self.log_reasoning("Answer Checker: ERROR - No response received")
         return False, "No response from Answer Checker"
             
-    def validate_links(self, links: List[str]) -> Tuple[bool, List[str], str]:
-        """Validate links using CURL and Link Checker agent."""
-        try:
-            # Use custom span for Link Checker agent
-            if self.tracer:
-                with self.tracer.start_as_current_span("link_checker_agent") as span:
-                    span.set_attribute("agent.name", "Link Checker")
-                    span.set_attribute("agent.operation", "validate_links")
-                    span.set_attribute("links.count", len(links))
-                    return self._execute_link_checker(links)
-            else:
-                return self._execute_link_checker(links)
-                
-        except Exception as e:
-            self.logger.error(f"Error validating links: {e}")
-            return False, [], f"Error: {e}"
-    
-    def _execute_link_checker(self, links: List[str]) -> Tuple[bool, List[str], str]:
-        """Internal method to execute Link Checker agent operations."""
-        # Check for mock mode first
-        if self.mock_mode:
-            return self._execute_link_checker_mock(links)
-        
-        # Update status bar
-        self.update_agent("Link Checker")
-        
-        import requests
-        
-        # First check: Must have at least one URL
-        if not links or len(links) == 0:
-            self.log_reasoning("Link Checker: No documentation URLs found - this is a failure condition")
-            return False, [], "No documentation URLs provided. All answers must include source links."
-        
-        self.log_reasoning(f"Link Checker: Validating {len(links)} URLs")
-        
-        valid_links = []
-        invalid_links = []
-        
-        # Check if links are reachable using requests
-        for link in links:
-            try:
-                response = requests.head(link, timeout=10, allow_redirects=True)
-                if response.status_code == 200:
-                    valid_links.append(link)
-                    self.log_reasoning(f"Link Checker: ✓ {link} (HTTP 200)")
-                else:
-                    invalid_links.append(f"{link} (HTTP {response.status_code})")
-                    self.log_reasoning(f"Link Checker: ✗ {link} (HTTP {response.status_code})")
-            except Exception as e:
-                invalid_links.append(f"{link} (Error: {e})")
-                self.log_reasoning(f"Link Checker: ✗ {link} (Error: {e})")
-        
-        # If we have at least one valid link, that's success
-        if valid_links:
-            if invalid_links:
-                self.log_reasoning(f"Link Checker: Removed {len(invalid_links)} invalid URLs, keeping {len(valid_links)} valid ones")
-                return True, valid_links, f"Found {len(valid_links)} valid links (removed {len(invalid_links)} invalid)"
-            else:
-                return True, valid_links, f"All {len(valid_links)} links are valid"
-        else:
-            return False, [], "No valid documentation URLs found after validation"
-    
     # Mock implementation methods for testing
-    def _execute_question_answerer_mock(self, question: str, context: str, char_limit: int, attempt_history: list = None) -> Tuple[Optional[str], List[str]]:
+    def _execute_question_answerer_mock(self, question: str, context: str, char_limit: int, attempt_history: Optional[list] = None) -> Tuple[Optional[str], List[str]]:
         """Mock implementation of Question Answerer for testing."""
         self.log_reasoning("Question Answerer (MOCK): Generating mock response")
         
-        # Generate a contextual mock answer
-        mock_answer = f"Based on the {context} context, regarding '{question[:50]}...': "
+        # Generate a contextual mock answer based on Fabric data (no links)
+        mock_answer = f"Based on the {context} structured dataset, regarding '{question[:50]}...': "
         
         if "azure" in question.lower():
-            mock_answer += "Microsoft Azure provides comprehensive cloud services including AI, compute, storage, and networking capabilities. "
+            mock_answer += "The dataset shows comprehensive information about Microsoft Azure cloud services including AI, compute, storage, and networking capabilities."
         elif "ai" in question.lower() or "artificial intelligence" in question.lower():
-            mock_answer += "Artificial Intelligence capabilities are available through various cloud platforms and services. "
+            mock_answer += "The dataset indicates that Artificial Intelligence capabilities are extensively documented and available."
         elif "video" in question.lower():
-            mock_answer += "Video processing and generation capabilities are available through modern AI services. "
+            mock_answer += "According to the dataset, video processing and generation capabilities are documented and available."
         else:
-            mock_answer += "This is a comprehensive answer to your question with relevant information and supporting documentation. "
-        
-        mock_answer += "For detailed information and documentation, please refer to the official Microsoft resources."
+            mock_answer += "The structured dataset contains comprehensive information that addresses your question with relevant details."
         
         # Ensure we stay under the character limit
         if len(mock_answer) > char_limit:
             mock_answer = mock_answer[:char_limit-3] + "..."
         
-        # Always include Microsoft.com as a documentation link
-        mock_links = ["https://www.microsoft.com"]
+        # No links in Fabric mode
+        mock_links = []
         
-        self.log_reasoning(f"Question Answerer (MOCK): Generated {len(mock_answer)} character response with {len(mock_links)} link(s)")
+        self.log_reasoning(f"Question Answerer (MOCK): Generated {len(mock_answer)} character response (no links in Fabric mode)")
         
         return mock_answer, mock_links
     
@@ -1299,27 +1138,6 @@ class QuestionnaireAgentUI:
         """Mock implementation of Answer Checker for testing."""
         self.log_reasoning("Answer Checker (MOCK): APPROVED the answer")
         return True, "VALID"
-    
-    def _execute_link_checker_mock(self, links: List[str]) -> Tuple[bool, List[str], str]:
-        """Mock implementation of Link Checker for testing."""
-        self.log_reasoning(f"Link Checker (MOCK): Validating {len(links)} URLs")
-        
-        # Microsoft.com should always be valid, so this will pass
-        valid_links = []
-        for link in links:
-            if "microsoft.com" in link.lower():
-                valid_links.append(link)
-                self.log_reasoning(f"Link Checker (MOCK): ✓ {link} (HTTP 200)")
-            else:
-                # For testing purposes, let's assume other URLs are also valid in mock mode
-                valid_links.append(link)
-                self.log_reasoning(f"Link Checker (MOCK): ✓ {link} (Mock validation)")
-        
-        if valid_links:
-            return True, valid_links, f"All {len(valid_links)} links are valid (mock validation)"
-        else:
-            # This should not happen with our mock Question Answerer, but handle it gracefully
-            return False, [], "No links provided for validation"
     
     def identify_columns_mock(self, df: pd.DataFrame) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """Mock implementation of column identification for testing."""
@@ -1477,7 +1295,7 @@ class QuestionnaireAgentUI:
             return
             
         # Switch to Reasoning tab immediately to show processing status
-        self.notebook.select(2)  # Index 2 is the Reasoning tab (Answer=0, Documentation=1, Reasoning=2)
+        self.notebook.select(1)  # Index 1 is the Reasoning tab (Answer=0, Reasoning=1 - no Documentation tab)
         
         # Clear reasoning text to show fresh processing logs
         self.reasoning_text.delete(1.0, tk.END)
@@ -1721,7 +1539,7 @@ class QuestionnaireAgentUI:
 
 
     def process_question_with_agents(self, question: str, context: str, char_limit: int, max_retries: int) -> Tuple[bool, str, List[str]]:
-        """Process a single question using the three-agent workflow."""
+        """Process a single question using the two-agent workflow (Fabric mode)."""
         self.log_reasoning("=" * 80)
         self.log_reasoning(f"STARTING NEW QUESTION WORKFLOW (Excel Processing)")
         self.log_reasoning(f"Question: {question[:100]}{'...' if len(question) > 100 else ''}")
@@ -1735,28 +1553,26 @@ class QuestionnaireAgentUI:
             attempt = 1
             max_attempts = max_retries
             
-            # Track valid links across retries for this question
-            accumulated_valid_links = []
-            
             # Track previous attempts and feedback for context improvement
             attempt_history = []
-            
-            # Track if we have a valid answer that just needs links (issue #10)
-            validated_answer = None
-            skip_answer_checker = False
             
             while attempt <= max_attempts:
                 # Step 1: Generate answer
                 candidate_answer, doc_urls = self.generate_answer(question, context, char_limit, attempt_history)
                 
-                if not candidate_answer:
-                    return False, "Question Answerer failed to generate an answer", []
+                # Check if Question Answerer returned a blank response (no data found in Fabric)
+                if not candidate_answer or candidate_answer.strip() == "":
+                    self.log_reasoning("Question Answerer returned blank response - Fabric found no data for this question")
+                    self.log_reasoning("=" * 80)
+                    self.log_reasoning("QUESTION WORKFLOW COMPLETED - NO DATA FOUND (Excel Processing)")
+                    self.log_reasoning("Context will be CLEARED for next question (no carryover of attempt history)")
+                    self.log_reasoning("=" * 80)
+                    
+                    # Return success with blank answer (this is expected behavior)
+                    return True, "", []
                 
-                # Remove links and citations, save links for documentation
-                clean_answer, text_links = self.extract_links_and_clean(candidate_answer)
-                
-                # Combine documentation URLs from run steps with any URLs found in text
-                all_links = list(set(doc_urls + text_links))  # Remove duplicates
+                # For Fabric mode, we don't extract links since there shouldn't be URLs in the response
+                clean_answer = candidate_answer.strip()
                 
                 # Check character limit
                 if len(clean_answer) > char_limit:
@@ -1773,84 +1589,27 @@ class QuestionnaireAgentUI:
                     attempt += 1
                     continue
                 
-                # Step 2: Validate answer (skip if we already have a validated answer)
-                if skip_answer_checker and validated_answer:
-                    self.log_reasoning("Answer Checker: Skipping validation - we already have a validated answer")
-                    answer_valid = True
-                    clean_answer = validated_answer  # Use the previously validated answer
-                else:
-                    answer_valid, answer_feedback = self.validate_answer(question, clean_answer)
-                    
-                    if not answer_valid:
-                        # Add to attempt history for next iteration
-                        attempt_history.append({
-                            'attempt': attempt,
-                            'answer': clean_answer,
-                            'rejection_reason': answer_feedback,
-                            'rejected_by': 'Answer Checker'
-                        })
-                        
-                        attempt += 1
-                        continue
-                    else:
-                        # Answer Checker approved - save this as our validated answer
-                        validated_answer = clean_answer
+                # Step 2: Validate answer
+                answer_valid, answer_feedback = self.validate_answer(question, clean_answer)
                 
-                # Step 3: Validate links
-                links_valid, valid_links, link_feedback = self.validate_links(all_links)
-                
-                # Accumulate any valid links found in this attempt
-                if valid_links:
-                    for link in valid_links:
-                        if link not in accumulated_valid_links:
-                            accumulated_valid_links.append(link)
-                
-                # Check if we have a valid answer and at least some valid links (current or accumulated)
-                if not links_valid and not accumulated_valid_links:
-                    # No valid links in current attempt and no accumulated links from previous attempts
-                    self.log_reasoning(f"Link Checker rejected: {link_feedback}")
-                    
-                    # Issue #10 fix: If we have a validated answer but no links, 
-                    # don't throw away the answer - instead ask for links that support it
-                    if validated_answer and not skip_answer_checker:
-                        self.log_reasoning("Answer is validated but has no links")
-                        self.log_reasoning("Next attempt will keep the validated answer and ask for supporting links")
-                        
-                        # Add special context for next iteration to find supporting links
-                        attempt_history.append({
-                            'attempt': attempt,
-                            'answer': validated_answer,
-                            'rejection_reason': f"Good answer but needs supporting links: {link_feedback}",
-                            'rejected_by': 'Link Checker (needs supporting links)',
-                            'special_instruction': 'keep_answer_find_links'
-                        })
-                        
-                        # Set flag to skip Answer Checker on next iteration
-                        skip_answer_checker = True
-                    else:
-                        # Standard rejection - no validated answer yet
-                        attempt_history.append({
-                            'attempt': attempt,
-                            'answer': clean_answer,
-                            'rejection_reason': link_feedback,
-                            'rejected_by': 'Link Checker'
-                        })
+                if not answer_valid:
+                    # Add to attempt history for next iteration
+                    attempt_history.append({
+                        'attempt': attempt,
+                        'answer': clean_answer,
+                        'rejection_reason': answer_feedback,
+                        'rejected_by': 'Answer Checker'
+                    })
                     
                     attempt += 1
                     continue
-                elif not links_valid and accumulated_valid_links:
-                    # Current attempt has no valid links, but we have accumulated valid links from previous attempts
-                    final_valid_links = accumulated_valid_links.copy()
-                else:
-                    # Current attempt has valid links
-                    final_valid_links = accumulated_valid_links.copy()  # Use all accumulated links
                 
                 # All checks passed
                 self.log_reasoning("=" * 80)
                 self.log_reasoning("QUESTION WORKFLOW COMPLETED SUCCESSFULLY (Excel Processing)")
                 self.log_reasoning("Context will be CLEARED for next question (no carryover of attempt history)")
                 self.log_reasoning("=" * 80)
-                return True, clean_answer, final_valid_links
+                return True, clean_answer, []  # No links in Fabric mode
                 
             # Max attempts reached
             return False, f"Failed to generate acceptable answer after {max_attempts} attempts", []
