@@ -773,9 +773,6 @@ class QuestionnaireAgentUI:
             self.link_checker_id = None  # No Link Checker in Fabric mode
             return
             
-        # Clean up any existing agents first
-        self.cleanup_agents()
-            
         try:
             self.log_reasoning("Creating agents...")
             
