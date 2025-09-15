@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Questionnaire Multiagent - UI Application
+Fabric Questionnaire Agent - UI Application
 
 A windowed application that orchestrates three Azure AI Foundry agents to answer questions
 with fact-checking and link validation. Supports both individual questions and Excel import/export.
@@ -71,7 +71,7 @@ class QuestionnaireAgentUI:
                 pass  # Ignore errors on non-Windows platforms or if not available
             
             self.root = tk.Tk()
-            self.root.title("Questionnaire Multiagent")
+            self.root.title("Fabric Questionnaire Agent")
             self.root.geometry("1200x800")
             
             # Maximize window based on OS
@@ -2019,7 +2019,7 @@ Only return existing column names. Do not suggest new column names."""
 def create_cli_parser():
     """Create command line argument parser."""
     parser = argparse.ArgumentParser(
-        description="Questionnaire Multiagent - AI question answering with fact-checking and link validation",
+        description="Fabric Questionnaire Agent - AI question answering with fact-checking and link validation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
   # Single question
