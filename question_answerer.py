@@ -651,8 +651,8 @@ class QuestionnaireAgentUI:
             self.log_reasoning(candidate_answer)
             self.log_reasoning("=== END RAW ANSWER ===")
             
-            # For Fabric mode, we don't extract links since there shouldn't be URLs in the response
-            clean_answer = candidate_answer.strip()
+            # Clean the answer by removing citations and fixing formatting
+            clean_answer, extracted_urls = self.extract_links_and_clean(candidate_answer)
             
             self.log_reasoning("=== CLEANED ANSWER ===")
             self.log_reasoning(clean_answer)
@@ -1568,8 +1568,8 @@ class QuestionnaireAgentUI:
                     # Return success with blank answer (this is expected behavior)
                     return True, "", []
                 
-                # For Fabric mode, we don't extract links since there shouldn't be URLs in the response
-                clean_answer = candidate_answer.strip()
+                # Clean the answer by removing citations and fixing formatting
+                clean_answer, extracted_urls = self.extract_links_and_clean(candidate_answer)
                 
                 # Check character limit
                 if len(clean_answer) > char_limit:
