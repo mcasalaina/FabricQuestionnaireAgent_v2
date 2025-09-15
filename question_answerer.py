@@ -287,7 +287,7 @@ class QuestionnaireAgentUI:
         context_label.pack(anchor=tk.W, pady=(0, 5))
         
         self.context_entry = tk.Entry(parent, width=40)
-        self.context_entry.insert(0, "Microsoft Azure AI")  # Default value
+        self.context_entry.insert(0, "Zava")  # Default value
         self.context_entry.pack(fill=tk.X, pady=(0, 15))
         
         # Character Limit section
@@ -312,7 +312,7 @@ class QuestionnaireAgentUI:
         
         self.question_text = scrolledtext.ScrolledText(parent, height=8, width=40, 
                                                      font=('Segoe UI', 12), wrap=tk.WORD)
-        self.question_text.insert(tk.END, "Does your service offer video generative AI?")  # Default value
+        self.question_text.insert(tk.END, "Which couriers are most cost-efficient for deliveries with a distance longer than 5km?")  # Default value
         self.question_text.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
         
         # Buttons
